@@ -108,13 +108,22 @@ let cmdConv = {
 
 let checkoutConv = {
   open Cmdliner;
-  let parse = v =>
-    switch (Astring.String.cut(~sep=":", v)) {
-    | Some((remote, "")) => Ok(`Remote(remote))
-    | Some(("", local)) => Ok(`Local(Path.v(local)))
-    | Some((remote, local)) => Ok(`RemoteLocal((remote, Path.v(local))))
-    | None => Ok(`Remote(v))
+
+  let parse = v => {
+    switch (String.split_on_char(':', v)) {
+    | ["", ...tail] => Ok(`Local(Path.v(String.concat(":", tail))))
+    | ["http" as p, snd, ...tail]
+    | ["https" as p, snd, ...tail] =>
+      if (List.length(tail) == 0) {
+        Ok(`Remote(v));
+      } else {
+        let remote = String.concat(":", [p, snd]);
+        let local = String.concat(":", [p, snd]);
+        Ok(`RemoteLocal((remote, Path.v(local))));
+      }
+    | _ => Ok(`Remote(v))
     };
+  };
 
   let print = (fmt: Format.formatter, v) =>
     switch (v) {
