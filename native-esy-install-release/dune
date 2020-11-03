@@ -6,4 +6,6 @@
    (-w -39)
    "-open"
    "EsyLib"))
- (libraries cmdliner EsyLib))
+ (libraries cmdliner EsyLib)
+ (preprocess
+  (pps lwt_ppx)))

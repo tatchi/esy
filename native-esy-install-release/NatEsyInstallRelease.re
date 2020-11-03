@@ -33,20 +33,67 @@ let getStorePathForPrefix = (prefix, ocamlPkgName, ocamlVersion) => {
     ++ String.make(esyStorePaddingLength - String.length(Path.show(p)), '_'),
   );
 };
+
+type checkError =
+  | NoBuildFound
+  | ReleaseAlreadyInstalled
+  | EsyLibError(EsyLib.Run.error);
+
+type checkResult = result(unit, checkError);
 let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlPkgName]: " ++ ocamlPkgName);
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
   print_endline("[rewritePrefix]: " ++ string_of_bool(rewritePrefix));
   // Store prefix path calculation
 
-  let storePrefixPath =
-    if (rewritePrefix) {
-      getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
-    } else {
-      unpaddedStorePath;
+  let check = () => {
+    let%lwt buildFound = Fs.exists(releaseExportPath);
+    switch (buildFound) {
+    | Ok(true) =>
+      if (!rewritePrefix) {
+        Lwt.return(Ok());
+      } else {
+        let storePath =
+          getStorePathForPrefix(
+            releasePackagePath,
+            ocamlPkgName,
+            ocamlVersion,
+          );
+        let%lwt storeFound = Fs.exists(storePath);
+        Lwt.return(
+          switch (storeFound) {
+          | Ok(true) => Error(ReleaseAlreadyInstalled)
+          | Ok(false) => Ok()
+          | Error(err) => Error(EsyLibError(err))
+          },
+        );
+      }
+    | Ok(false) => Lwt.return(Error(NoBuildFound))
+    | Error(err) => Lwt.return(Error(EsyLibError(err)))
     };
+  };
 
-  print_endline(storePrefixPath |> Path.show);
+  let%lwt checkResult = check();
+
+  switch (checkResult) {
+  | Ok(_) => print_endline("tout ok")
+  | Error(NoBuildFound) => print_endline("No build found!")
+  | Error(ReleaseAlreadyInstalled) =>
+    print_endline("Release already installed!")
+  | Error(EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
+  };
+
+  Lwt.return_nil;
+  // let initStore = {
+  //   let storePrefixPath =
+  //     if (rewritePrefix) {
+  //       getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
+  //     } else {
+  //       unpaddedStorePath;
+  //     };
+  //   ();
+  // };
+  // print_endline(storePrefixPath |> Path.show);
 };
 
 open Cmdliner;
@@ -78,7 +125,11 @@ let rewritePrefix = {
   );
 };
 
-let main_t = Term.(const(main) $ ocamlPkgName $ ocamlVersion $ rewritePrefix);
+let lwt_main = (ocamlPkgName, ocamlVersion, rewritePrefix) =>
+  Lwt_main.run(main(ocamlPkgName, ocamlVersion, rewritePrefix));
+
+let main_t =
+  Term.(const(lwt_main) $ ocamlPkgName $ ocamlVersion $ rewritePrefix);
 
 let info = {
   let doc = "Export native builds and rewrite prefixes in them";
