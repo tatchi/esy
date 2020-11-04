@@ -5,6 +5,9 @@ module Path = {
   let join = (x, y) => Filename.concat(x, y) |> Path.v;
 };
 
+let storeBuildTree = "b";
+let storeInstallTree = "i";
+let storeStageTree = "s";
 let cwd = Sys.getcwd();
 let releasePackagePath = cwd;
 let releaseExportPath = Path.(v(releasePackagePath) / "_export");
@@ -34,17 +37,20 @@ let getStorePathForPrefix = (prefix, ocamlPkgName, ocamlVersion) => {
   );
 };
 
-type checkError =
-  | NoBuildFound
-  | ReleaseAlreadyInstalled
-  | EsyLibError(EsyLib.Run.error);
+type checkError = [
+  | `NoBuildFound
+  | `ReleaseAlreadyInstalled
+  | `EsyLibError(EsyLib.Run.error)
+];
+
+// type initStoreError = [ | `EsyLibError(EsyLib.Run.error)];
 
 type checkResult = result(unit, checkError);
 let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlPkgName]: " ++ ocamlPkgName);
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
   print_endline("[rewritePrefix]: " ++ string_of_bool(rewritePrefix));
-  // Store prefix path calculation
+  open RunAsync.Syntax.Let_syntax; // Store prefix path calculation
 
   let check = () => {
     let%lwt buildFound = Fs.exists(releaseExportPath);
@@ -62,39 +68,61 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
         let%lwt storeFound = Fs.exists(storePath);
         Lwt.return(
           switch (storeFound) {
-          | Ok(true) => Error(ReleaseAlreadyInstalled)
+          | Ok(true) => Error(`ReleaseAlreadyInstalled)
           | Ok(false) => Ok()
-          | Error(err) => Error(EsyLibError(err))
+          | Error(err) => Error(`EsyLibError(err))
           },
         );
       }
-    | Ok(false) => Lwt.return(Error(NoBuildFound))
-    | Error(err) => Lwt.return(Error(EsyLibError(err)))
+    | Ok(false) => Lwt.return(Error(`NoBuildFound))
+    | Error(err) => Lwt.return(Error(`EsyLibError(err)))
     };
   };
 
-  let%lwt checkResult = check();
-
-  switch (checkResult) {
-  | Ok(_) => print_endline("tout ok")
-  | Error(NoBuildFound) => print_endline("No build found!")
-  | Error(ReleaseAlreadyInstalled) =>
-    print_endline("Release already installed!")
-  | Error(EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
+  let initStore = () => {
+    let storePath =
+      if (rewritePrefix) {
+        getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
+      } else {
+        unpaddedStorePath;
+      };
+    Fs.createDir(storePath)
+    |> RunAsync.Syntax.Let_syntax.bind(~f=_ => {
+         RunAsync.List.waitAll([
+           Fs.createDir(Path.(storePath / storeBuildTree)),
+           Fs.createDir(Path.(storePath / storeInstallTree)),
+           Fs.createDir(Path.(storePath / storeStageTree)),
+         ])
+       })
+    |> Lwt.map(res =>
+         switch (res) {
+         | Error(err) => Error(`EsyLibError(err))
+         | Ok(_) => Ok()
+         }
+       );
   };
 
-  Lwt.return_nil;
-  // let initStore = {
-  //   let storePrefixPath =
-  //     if (rewritePrefix) {
-  //       getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
-  //     } else {
-  //       unpaddedStorePath;
-  //     };
-  //   ();
-  // };
-  // print_endline(storePrefixPath |> Path.show);
+  let%lwt checkResult = check();
+  switch (checkResult) {
+  | Error(err) => Lwt.return(Error(err))
+  | Ok () => initStore()
+  };
+  // let a = Lwt.bind(check(), res => Result.map(~f=_ => initStore(), res));
+  // ();
+  // open Rresult;
+  // let b = Lwt.bind(check(), res => Lwt.return(res >>= (a => initStore())));
+  // ();
+  // let%lwt _ = check();
+  // let%lwt b = initStore();
 };
+
+// switch (checkResult) {
+// | Ok(_) => print_endline("tout ok")
+// | Error(NoBuildFound) => print_endline("No build found!")
+// | Error(ReleaseAlreadyInstalled) =>
+//   print_endline("Release already installed!")
+// | Error(EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
+// };
 
 open Cmdliner;
 
