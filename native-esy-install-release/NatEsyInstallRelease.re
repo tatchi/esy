@@ -102,11 +102,52 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
        );
   };
 
-  let%lwt checkResult = check();
-  switch (checkResult) {
-  | Error(err) => Lwt.return(Error(err))
-  | Ok () => initStore()
+  let doImport = () => {
+    let importBuilds = () => {
+      // let%lwt diren = Lwt_unix.opendir(Path.show(releaseExportPath));
+
+      let readdir = (~dir, ~maybeRelativeDir=?, ()) => {
+        let%lwt dirs = Fs.listDir(dir);
+        switch (dirs) {
+        | Error(_) => Lwt_io.printl("error listDir")
+        | Ok(dirs) =>
+          Lwt_list.iter_p(
+            d => {
+              let%lwt maybeStats = Fs.lstat(Path.(dir / d));
+              switch (maybeStats) {
+              | Error(_) => Lwt_io.printl("error lstat")
+              | Ok(stats) =>
+                let toPrint =
+                  "[basename]: "
+                  ++ d
+                  ++ ", [relative]: "
+                  ++ (
+                    switch (maybeRelativeDir) {
+                    | None => d
+                    | Some(relativeDir) => Path.(show(relativeDir / d))
+                    }
+                  )
+                  ++ ", [lstat]: " ++ string_of_int(stats.st_size);
+                Lwt_io.printl(toPrint);
+              };
+            },
+            dirs,
+          )
+        };
+      };
+      let%lwt _ = readdir(~dir=releaseExportPath, ());
+      Lwt.return_nil;
+    };
+    importBuilds();
   };
+
+  doImport();
+  // let%lwt _ =  doImport()
+  // let%lwt checkResult = check();
+  // switch (checkResult) {
+  // | Error(err) => Lwt.return(Error(err))
+  // | Ok () => initStore()
+  // };
   // let a = Lwt.bind(check(), res => Result.map(~f=_ => initStore(), res));
   // ();
   // open Rresult;
@@ -115,14 +156,6 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   // let%lwt _ = check();
   // let%lwt b = initStore();
 };
-
-// switch (checkResult) {
-// | Ok(_) => print_endline("tout ok")
-// | Error(NoBuildFound) => print_endline("No build found!")
-// | Error(ReleaseAlreadyInstalled) =>
-//   print_endline("Release already installed!")
-// | Error(EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
-// };
 
 open Cmdliner;
 
@@ -153,8 +186,18 @@ let rewritePrefix = {
   );
 };
 
-let lwt_main = (ocamlPkgName, ocamlVersion, rewritePrefix) =>
-  Lwt_main.run(main(ocamlPkgName, ocamlVersion, rewritePrefix));
+let lwt_main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
+  Lwt_main.run(
+    main(ocamlPkgName, ocamlVersion, rewritePrefix),
+    // switch (res) {
+    // | Ok(_) => print_endline("tout ok")
+    // | Error(`NoBuildFound) => print_endline("No build found!")
+    // | Error(`ReleaseAlreadyInstalled) =>
+    //   print_endline("Release already installed!")
+    // | Error(`EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
+    // };
+  );
+};
 
 let main_t =
   Term.(const(lwt_main) $ ocamlPkgName $ ocamlVersion $ rewritePrefix);
