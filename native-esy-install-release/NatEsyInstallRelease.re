@@ -106,29 +106,47 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     let importBuilds = () => {
       // let%lwt diren = Lwt_unix.opendir(Path.show(releaseExportPath));
 
-      let readdir = (~dir, ~maybeRelativeDir=?, ()) => {
+      let rec readdir = (~dir, ~maybeRelativeDir=?, ()) => {
         let%lwt dirs = Fs.listDir(dir);
         switch (dirs) {
         | Error(_) => Lwt_io.printl("error listDir")
         | Ok(dirs) =>
           Lwt_list.iter_p(
             d => {
-              let%lwt maybeStats = Fs.lstat(Path.(dir / d));
+              let currentDirPath = Path.(dir / d);
+              let%lwt maybeStats = Fs.lstat(currentDirPath);
               switch (maybeStats) {
               | Error(_) => Lwt_io.printl("error lstat")
               | Ok(stats) =>
+                let relativeDir =
+                  switch (maybeRelativeDir) {
+                  | None => d
+                  | Some(relativeDir) => Path.(show(relativeDir / d))
+                  };
                 let toPrint =
                   "[basename]: "
                   ++ d
                   ++ ", [relative]: "
-                  ++ (
-                    switch (maybeRelativeDir) {
-                    | None => d
-                    | Some(relativeDir) => Path.(show(relativeDir / d))
-                    }
-                  )
-                  ++ ", [lstat]: " ++ string_of_int(stats.st_size);
-                Lwt_io.printl(toPrint);
+                  ++ relativeDir
+                  ++ ", [absolute]: "
+                  ++ Path.show(currentDirPath)
+                  ++ ", [lstat]: "
+                  ++ string_of_int(stats.st_size);
+                // Lwt_io.printl(toPrint);
+                print_endline(toPrint);
+                switch%lwt (Fs.isDir(currentDirPath)) {
+                | Error(_) => Lwt_io.printl("error isDir")
+                | Ok(isDir) =>
+                  if (isDir) {
+                    readdir(
+                      ~dir=currentDirPath,
+                      ~maybeRelativeDir=Path.v(relativeDir),
+                      (),
+                    );
+                  } else {
+                    Lwt.return_unit;
+                  }
+                };
               };
             },
             dirs,
