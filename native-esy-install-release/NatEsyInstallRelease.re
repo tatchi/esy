@@ -37,15 +37,23 @@ let getStorePathForPrefix = (prefix, ocamlPkgName, ocamlVersion) => {
   );
 };
 
-type checkError = [
-  | `NoBuildFound
-  | `ReleaseAlreadyInstalled
-  | `EsyLibError(EsyLib.Run.error)
-];
+// type checkError = [
+//   | `NoBuildFound
+//   | `ReleaseAlreadyInstalled
+//   | `EsyLibError(EsyLib.Run.error)
+// ];
 
 // type initStoreError = [ | `EsyLibError(EsyLib.Run.error)];
 
-type checkResult = result(unit, checkError);
+// type checkResult = result(unit, checkError);
+
+type fileStat = {
+  relative: Fpath.t,
+  basename: Fpath.t,
+  absolute: Fpath.t,
+  mtime: float,
+  stats: Lwt_unix.stats,
+};
 let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlPkgName]: " ++ ocamlPkgName);
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
@@ -106,54 +114,73 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     let importBuilds = () => {
       // let%lwt diren = Lwt_unix.opendir(Path.show(releaseExportPath));
 
-      let rec readdir = (~dir, ~maybeRelativeDir=?, ()) => {
+      let rec readdir = (~acc, ~dir, ~maybeRelativeDir=?, ()) => {
         let%lwt dirs = Fs.listDir(dir);
         switch (dirs) {
-        | Error(_) => Lwt_io.printl("error listDir")
+        | Error(err) => Lwt.return(Error(err))
         | Ok(dirs) =>
-          Lwt_list.iter_p(
-            d => {
-              let currentDirPath = Path.(dir / d);
-              let%lwt maybeStats = Fs.lstat(currentDirPath);
-              switch (maybeStats) {
-              | Error(_) => Lwt_io.printl("error lstat")
-              | Ok(stats) =>
-                let relativeDir =
-                  switch (maybeRelativeDir) {
-                  | None => d
-                  | Some(relativeDir) => Path.(show(relativeDir / d))
+          Lwt_list.fold_left_s(
+            (acc, d) => {
+              switch (acc) {
+              | Error(err) => Lwt.return(Error(err))
+              | Ok(accOk) =>
+                let currentDirPath = Path.(dir / d);
+                let%lwt maybeStats = Fs.lstat(currentDirPath);
+                switch (maybeStats) {
+                | Error(err) => Lwt.return(Error(err))
+                | Ok(stats) =>
+                  let relativeDir =
+                    switch (maybeRelativeDir) {
+                    | None => Fpath.v(d)
+                    | Some(relativeDir) => Path.(relativeDir / d)
+                    };
+                  switch%lwt (Fs.isDir(currentDirPath)) {
+                  | Error(err) => Lwt.return(Error(err))
+                  | Ok(isDir) =>
+                    let file = {
+                      relative: relativeDir,
+                      basename: dir,
+                      absolute: currentDirPath,
+                      mtime: stats.st_mtime,
+                      stats,
+                    };
+                    if (isDir) {
+                      print_endline(
+                        "In folder: " ++ Path.show(file.absolute),
+                      );
+                      let%lwt filesFromFolder =
+                        readdir(
+                          ~acc=[],
+                          ~dir=currentDirPath,
+                          ~maybeRelativeDir=relativeDir,
+                          (),
+                        );
+                      switch (filesFromFolder) {
+                      | Error(err) => Lwt.return(Error(err))
+                      | Ok(l) => Lwt.return(Ok([file, ...List.append(l, accOk)]))
+                      };
+                    } else {
+                      print_endline("file: " ++ Path.show(file.absolute));
+                      Lwt.return(Ok([file, ...accOk]));
+                    };
                   };
-                let toPrint =
-                  "[basename]: "
-                  ++ d
-                  ++ ", [relative]: "
-                  ++ relativeDir
-                  ++ ", [absolute]: "
-                  ++ Path.show(currentDirPath)
-                  ++ ", [lstat]: "
-                  ++ string_of_int(stats.st_size);
-                // Lwt_io.printl(toPrint);
-                print_endline(toPrint);
-                switch%lwt (Fs.isDir(currentDirPath)) {
-                | Error(_) => Lwt_io.printl("error isDir")
-                | Ok(isDir) =>
-                  if (isDir) {
-                    readdir(
-                      ~dir=currentDirPath,
-                      ~maybeRelativeDir=Path.v(relativeDir),
-                      (),
-                    );
-                  } else {
-                    Lwt.return_unit;
-                  }
                 };
-              };
+              }
             },
+            Ok([]),
             dirs,
           )
         };
       };
-      let%lwt _ = readdir(~dir=releaseExportPath, ());
+      let%lwt res = readdir(~acc=[], ~dir=releaseExportPath, ());
+
+      switch (res) {
+      | Error(err) => print_endline("error")
+      | Ok(listFiles) =>
+        listFiles
+        |> List.iter(~f=file => print_endline(Path.show(file.absolute)))
+      };
+
       Lwt.return_nil;
     };
     importBuilds();
