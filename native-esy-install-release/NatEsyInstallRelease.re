@@ -148,10 +148,46 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     inner(~path=dir, ~dirs=filesOrDirs, ~acc=[]);
   };
 
-  let res = readdir(~dir=releaseExportPath);
+  let fsWalk = (~dir) => {
+    let rec inner = (~path, ~dirsInPath, ~acc) => {
+      switch (dirsInPath) {
+      | [] => Lwt.return(Ok(acc))
+      | [currentDir, ...restDir] =>
+        let currentDirPath = Path.(path / currentDir);
+        Fs.isDir(currentDirPath)
+        |> RunAsync.Syntax.Let_syntax.bind(~f=isDir =>
+             if (isDir) {
+               Fs.listDir(currentDirPath)
+               |> RunAsync.Syntax.Let_syntax.bind(~f=subDirs =>
+                    inner(
+                      ~path=currentDirPath,
+                      ~dirsInPath=subDirs,
+                      ~acc=[currentDirPath, ...acc],
+                    )
+                  );
+             } else {
+               inner(
+                 ~path,
+                 ~dirsInPath=restDir,
+                 ~acc=[currentDirPath, ...acc],
+               );
+             }
+           );
+      };
+    };
 
-  readdir(~dir=releaseExportPath)
-  |> List.iter(~f=fileOrDir => print_endline(fileOrDir));
+    Fs.listDir(dir)
+    |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInPath =>
+         inner(~path=dir, ~dirsInPath, ~acc=[])
+       );
+  };
+
+  let%lwt res = fsWalk(~dir=releaseExportPath);
+
+  switch (res) {
+  | Error(_) => print_endline("error")
+  | Ok(l) => l |> List.iter(~f=dir => print_endline(Path.show(dir)))
+  };
 
   let doImport = () => {
     let importBuilds = () => {
