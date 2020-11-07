@@ -158,10 +158,10 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
         |> RunAsync.Syntax.Let_syntax.bind(~f=isDir =>
              if (isDir) {
                Fs.listDir(currentDirPath)
-               |> RunAsync.Syntax.Let_syntax.bind(~f=subDirs =>
+               |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInCurrentDirPath =>
                     inner(
                       ~path=currentDirPath,
-                      ~dirsInPath=subDirs,
+                      ~dirsInPath=dirsInCurrentDirPath,
                       ~acc=[currentDirPath, ...acc],
                     )
                   );
