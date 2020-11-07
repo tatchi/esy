@@ -110,11 +110,54 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
        );
   };
 
+  let listDir = path => {
+    let dirent = Unix.opendir(Path.show(path));
+    let rec readdir = names => {
+      switch (Unix.readdir(dirent)) {
+      | exception _ => names
+      | "."
+      | ".." => readdir(names)
+      | dir => readdir([dir, ...names])
+      };
+    };
+    readdir([]);
+  };
+
+  let readdir = (~dir) => {
+    let rec inner = (~path, ~dirs, ~acc) => {
+      switch (dirs) {
+      | [] => acc
+      | [currFileOrDir, ...rest] =>
+        let absoluteFileOrDirPath = Path.(path / currFileOrDir);
+        if (Unix.stat(Path.show(absoluteFileOrDirPath)).st_kind
+            === Unix.S_DIR) {
+          print_endline("DIR: " ++ Path.show(absoluteFileOrDirPath));
+          inner(
+            ~path=absoluteFileOrDirPath,
+            ~dirs=listDir(absoluteFileOrDirPath),
+            ~acc=[currFileOrDir, ...acc],
+          );
+        } else {
+          print_endline("FILE: " ++ Path.show(absoluteFileOrDirPath));
+          inner(~path=dir, ~dirs=rest, ~acc=[currFileOrDir, ...acc]);
+        };
+      };
+    };
+
+    let filesOrDirs = listDir(dir);
+    inner(~path=dir, ~dirs=filesOrDirs, ~acc=[]);
+  };
+
+  let res = readdir(~dir=releaseExportPath);
+
+  readdir(~dir=releaseExportPath)
+  |> List.iter(~f=fileOrDir => print_endline(fileOrDir));
+
   let doImport = () => {
     let importBuilds = () => {
       // let%lwt diren = Lwt_unix.opendir(Path.show(releaseExportPath));
 
-      let rec readdir = (~acc, ~dir, ~maybeRelativeDir=?, ()) => {
+      let rec readdir = (~accFiles, ~dir, ~maybeRelativeDir=?, ()) => {
         let%lwt dirs = Fs.listDir(dir);
         switch (dirs) {
         | Error(err) => Lwt.return(Error(err))
@@ -145,22 +188,19 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
                       stats,
                     };
                     if (isDir) {
-                      print_endline(
-                        "In folder: " ++ Path.show(file.absolute),
-                      );
                       let%lwt filesFromFolder =
                         readdir(
-                          ~acc=[],
+                          ~accFiles=accOk,
                           ~dir=currentDirPath,
                           ~maybeRelativeDir=relativeDir,
                           (),
                         );
                       switch (filesFromFolder) {
                       | Error(err) => Lwt.return(Error(err))
-                      | Ok(l) => Lwt.return(Ok([file, ...List.append(l, accOk)]))
+                      | Ok(l) =>
+                        Lwt.return(Ok([file, ...List.append(l, accOk)]))
                       };
                     } else {
-                      print_endline("file: " ++ Path.show(file.absolute));
                       Lwt.return(Ok([file, ...accOk]));
                     };
                   };
@@ -172,7 +212,7 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
           )
         };
       };
-      let%lwt res = readdir(~acc=[], ~dir=releaseExportPath, ());
+      let%lwt res = readdir(~accFiles=[], ~dir=releaseExportPath, ());
 
       switch (res) {
       | Error(err) => print_endline("error")
@@ -186,7 +226,8 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     importBuilds();
   };
 
-  doImport();
+  Lwt.return_nil;
+  // doImport();
   // let%lwt _ =  doImport()
   // let%lwt checkResult = check();
   // switch (checkResult) {
