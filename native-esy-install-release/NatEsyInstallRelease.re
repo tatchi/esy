@@ -54,6 +54,61 @@ type fileStat = {
   mtime: float,
   stats: Lwt_unix.stats,
 };
+
+let fsWalk = (~dir) => {
+  let rec inner = (~path, ~relativePath, ~dirsInPath, ~acc) => {
+    switch (dirsInPath) {
+    | [] => Lwt.return(Ok(acc))
+    | [currentDir, ...restDir] =>
+      let currentDirPath = Path.(path / currentDir);
+      RunAsync.Syntax.Let_syntax.both(
+        Fs.isDir(currentDirPath),
+        Fs.stat(currentDirPath),
+      )
+      |> RunAsync.Syntax.Let_syntax.bind(~f=((isDir, stats)) => {
+           let basename = Fpath.v(Fpath.basename(currentDirPath));
+           let currentRelativePath =
+             relativePath
+             |> Option.map(~f=relativePath =>
+                  Fpath.append(relativePath, basename)
+                )
+             |> Option.orDefault(~default=basename);
+
+           let file = {
+             relative: currentRelativePath,
+             basename,
+             absolute: currentDirPath,
+             mtime: Unix.(stats.st_mtime),
+             stats,
+           };
+
+           if (isDir) {
+             Fs.listDir(currentDirPath)
+             |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInCurrentDirPath =>
+                  inner(
+                    ~path=currentDirPath,
+                    ~relativePath=Some(currentRelativePath),
+                    ~dirsInPath=dirsInCurrentDirPath,
+                    ~acc=[file, ...acc],
+                  )
+                );
+           } else {
+             inner(
+               ~path,
+               ~relativePath,
+               ~dirsInPath=restDir,
+               ~acc=[file, ...acc],
+             );
+           };
+         });
+    };
+  };
+  Fs.listDir(dir)
+  |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInPath =>
+       inner(~path=dir, ~relativePath=None, ~dirsInPath, ~acc=[])
+     );
+};
+
 let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlPkgName]: " ++ ocamlPkgName);
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
@@ -110,173 +165,14 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
        );
   };
 
-  let listDir = path => {
-    let dirent = Unix.opendir(Path.show(path));
-    let rec readdir = names => {
-      switch (Unix.readdir(dirent)) {
-      | exception _ => names
-      | "."
-      | ".." => readdir(names)
-      | dir => readdir([dir, ...names])
-      };
-    };
-    readdir([]);
-  };
-
-  let readdir = (~dir) => {
-    let rec inner = (~path, ~dirs, ~acc) => {
-      switch (dirs) {
-      | [] => acc
-      | [currFileOrDir, ...rest] =>
-        let absoluteFileOrDirPath = Path.(path / currFileOrDir);
-        if (Unix.stat(Path.show(absoluteFileOrDirPath)).st_kind
-            === Unix.S_DIR) {
-          print_endline("DIR: " ++ Path.show(absoluteFileOrDirPath));
-          inner(
-            ~path=absoluteFileOrDirPath,
-            ~dirs=listDir(absoluteFileOrDirPath),
-            ~acc=[currFileOrDir, ...acc],
-          );
-        } else {
-          print_endline("FILE: " ++ Path.show(absoluteFileOrDirPath));
-          inner(~path=dir, ~dirs=rest, ~acc=[currFileOrDir, ...acc]);
-        };
-      };
-    };
-
-    let filesOrDirs = listDir(dir);
-    inner(~path=dir, ~dirs=filesOrDirs, ~acc=[]);
-  };
-
-  let fsWalk = (~dir) => {
-    let rec inner = (~path, ~dirsInPath, ~acc) => {
-      switch (dirsInPath) {
-      | [] => Lwt.return(Ok(acc))
-      | [currentDir, ...restDir] =>
-        let currentDirPath = Path.(path / currentDir);
-        Fs.isDir(currentDirPath)
-        |> RunAsync.Syntax.Let_syntax.bind(~f=isDir =>
-             if (isDir) {
-               Fs.listDir(currentDirPath)
-               |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInCurrentDirPath =>
-                    inner(
-                      ~path=currentDirPath,
-                      ~dirsInPath=dirsInCurrentDirPath,
-                      ~acc=[currentDirPath, ...acc],
-                    )
-                  );
-             } else {
-               inner(
-                 ~path,
-                 ~dirsInPath=restDir,
-                 ~acc=[currentDirPath, ...acc],
-               );
-             }
-           );
-      };
-    };
-
-    Fs.listDir(dir)
-    |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInPath =>
-         inner(~path=dir, ~dirsInPath, ~acc=[])
-       );
-  };
-
-  let%lwt res = fsWalk(~dir=releaseExportPath);
-
-  switch (res) {
-  | Error(_) => print_endline("error")
-  | Ok(l) => l |> List.iter(~f=dir => print_endline(Path.show(dir)))
-  };
-
   let doImport = () => {
     let importBuilds = () => {
-      // let%lwt diren = Lwt_unix.opendir(Path.show(releaseExportPath));
-
-      let rec readdir = (~accFiles, ~dir, ~maybeRelativeDir=?, ()) => {
-        let%lwt dirs = Fs.listDir(dir);
-        switch (dirs) {
-        | Error(err) => Lwt.return(Error(err))
-        | Ok(dirs) =>
-          Lwt_list.fold_left_s(
-            (acc, d) => {
-              switch (acc) {
-              | Error(err) => Lwt.return(Error(err))
-              | Ok(accOk) =>
-                let currentDirPath = Path.(dir / d);
-                let%lwt maybeStats = Fs.lstat(currentDirPath);
-                switch (maybeStats) {
-                | Error(err) => Lwt.return(Error(err))
-                | Ok(stats) =>
-                  let relativeDir =
-                    switch (maybeRelativeDir) {
-                    | None => Fpath.v(d)
-                    | Some(relativeDir) => Path.(relativeDir / d)
-                    };
-                  switch%lwt (Fs.isDir(currentDirPath)) {
-                  | Error(err) => Lwt.return(Error(err))
-                  | Ok(isDir) =>
-                    let file = {
-                      relative: relativeDir,
-                      basename: dir,
-                      absolute: currentDirPath,
-                      mtime: stats.st_mtime,
-                      stats,
-                    };
-                    if (isDir) {
-                      let%lwt filesFromFolder =
-                        readdir(
-                          ~accFiles=accOk,
-                          ~dir=currentDirPath,
-                          ~maybeRelativeDir=relativeDir,
-                          (),
-                        );
-                      switch (filesFromFolder) {
-                      | Error(err) => Lwt.return(Error(err))
-                      | Ok(l) =>
-                        Lwt.return(Ok([file, ...List.append(l, accOk)]))
-                      };
-                    } else {
-                      Lwt.return(Ok([file, ...accOk]));
-                    };
-                  };
-                };
-              }
-            },
-            Ok([]),
-            dirs,
-          )
-        };
-      };
-      let%lwt res = readdir(~accFiles=[], ~dir=releaseExportPath, ());
-
-      switch (res) {
-      | Error(err) => print_endline("error")
-      | Ok(listFiles) =>
-        listFiles
-        |> List.iter(~f=file => print_endline(Path.show(file.absolute)))
-      };
-
-      Lwt.return_nil;
+      // fsWalk
     };
     importBuilds();
   };
 
   Lwt.return_nil;
-  // doImport();
-  // let%lwt _ =  doImport()
-  // let%lwt checkResult = check();
-  // switch (checkResult) {
-  // | Error(err) => Lwt.return(Error(err))
-  // | Ok () => initStore()
-  // };
-  // let a = Lwt.bind(check(), res => Result.map(~f=_ => initStore(), res));
-  // ();
-  // open Rresult;
-  // let b = Lwt.bind(check(), res => Lwt.return(res >>= (a => initStore())));
-  // ();
-  // let%lwt _ = check();
-  // let%lwt b = initStore();
 };
 
 open Cmdliner;
