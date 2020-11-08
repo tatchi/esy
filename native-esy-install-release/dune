@@ -8,4 +8,4 @@
    "EsyLib"))
  (libraries cmdliner EsyLib)
  (preprocess
-  (pps lwt_ppx)))
+  (pps lwt_ppx ppx_let)))

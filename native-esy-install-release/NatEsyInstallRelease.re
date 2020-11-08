@@ -56,64 +56,57 @@ type fileStat = {
 };
 
 let fsWalk = (~dir) => {
+  open RunAsync.Syntax;
   let rec inner = (~path, ~relativePath, ~dirsInPath, ~acc) => {
     switch (dirsInPath) {
     | [] => Lwt.return(Ok(acc))
     | [currentDir, ...restDir] =>
       let currentDirPath = Path.(path / currentDir);
-      RunAsync.Syntax.Let_syntax.both(
-        Fs.isDir(currentDirPath),
-        Fs.stat(currentDirPath),
-      )
-      |> RunAsync.Syntax.Let_syntax.bind(~f=((isDir, stats)) => {
-           let basename = Fpath.v(Fpath.basename(currentDirPath));
-           let currentRelativePath =
-             relativePath
-             |> Option.map(~f=relativePath =>
-                  Fpath.append(relativePath, basename)
-                )
-             |> Option.orDefault(~default=basename);
+      let basename = Fpath.v(Fpath.basename(currentDirPath));
+      let currentRelativePath =
+        relativePath
+        |> Option.map(~f=relativePath =>
+             Fpath.append(relativePath, basename)
+           )
+        |> Option.orDefault(~default=basename);
 
-           let file = {
-             relative: currentRelativePath,
-             basename,
-             absolute: currentDirPath,
-             mtime: Unix.(stats.st_mtime),
-             stats,
-           };
+      let%bind (isDir, stats) =
+        Let_syntax.both(Fs.isDir(currentDirPath), Fs.stat(currentDirPath));
 
-           if (isDir) {
-             Fs.listDir(currentDirPath)
-             |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInCurrentDirPath =>
-                  inner(
-                    ~path=currentDirPath,
-                    ~relativePath=Some(currentRelativePath),
-                    ~dirsInPath=dirsInCurrentDirPath,
-                    ~acc=[file, ...acc],
-                  )
-                );
-           } else {
-             inner(
-               ~path,
-               ~relativePath,
-               ~dirsInPath=restDir,
-               ~acc=[file, ...acc],
-             );
-           };
-         });
+      let file = {
+        relative: currentRelativePath,
+        basename,
+        absolute: currentDirPath,
+        mtime: Unix.(stats.st_mtime),
+        stats,
+      };
+
+      if (isDir) {
+        let%bind dirsInCurrentDirPath = Fs.listDir(currentDirPath);
+        inner(
+          ~path=currentDirPath,
+          ~relativePath=Some(currentRelativePath),
+          ~dirsInPath=dirsInCurrentDirPath,
+          ~acc=[file, ...acc],
+        );
+      } else {
+        inner(
+          ~path,
+          ~relativePath,
+          ~dirsInPath=restDir,
+          ~acc=[file, ...acc],
+        );
+      };
     };
   };
-  Fs.listDir(dir)
-  |> RunAsync.Syntax.Let_syntax.bind(~f=dirsInPath =>
-       inner(~path=dir, ~relativePath=None, ~dirsInPath, ~acc=[])
-     );
+  let%bind dirsInPath = Fs.listDir(dir);
+  inner(~path=dir, ~relativePath=None, ~dirsInPath, ~acc=[]);
 };
 
 let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlPkgName]: " ++ ocamlPkgName);
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
   print_endline("[rewritePrefix]: " ++ string_of_bool(rewritePrefix));
-  open RunAsync.Syntax.Let_syntax; // Store prefix path calculation
 
   let check = () => {
     let%lwt buildFound = Fs.exists(releaseExportPath);
