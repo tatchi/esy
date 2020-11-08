@@ -1,4 +1,5 @@
 let esyStoreVersion = "3";
+open RunAsync.Syntax;
 
 module Path = {
   include Path;
@@ -98,7 +99,7 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   print_endline("[ocamlVersion]: " ++ ocamlVersion);
   print_endline("[rewritePrefix]: " ++ string_of_bool(rewritePrefix));
 
-  let check = () => {
+  let _check = () => {
     let%lwt buildFound = Fs.exists(releaseExportPath);
     switch (buildFound) {
     | Ok(true) =>
@@ -125,7 +126,7 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     };
   };
 
-  let initStore = () => {
+  let _initStore = () => {
     open Lwt_result;
     let storePath =
       if (rewritePrefix) {
@@ -146,9 +147,13 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     |> Lwt_result.map_err(err => `EsyLibError(err));
   };
 
-  let doImport = () => {
+  let doImport = releaseExportPath => {
     let importBuilds = () => {
-      // fsWalk
+      print_endline(">>>>>>>>>>>>>>>>>>>>");
+      let%bind entries = fsWalk(~dir=releaseExportPath);
+      entries |> List.iter(~f=f => print_endline(Path.show(f.absolute)));
+      print_endline("<<<<<<<<<<<<<<");
+      RunAsync.return();
     };
     importBuilds();
   };
@@ -157,7 +162,14 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   // };
   // let%bind _ = check();
   // initStore();
-  Lwt_result.(check() >>= (_ => initStore()));
+  /* Lwt_result.(check() >>= (_ => initStore())); */
+  let%lwt r = doImport(releaseExportPath);
+  switch (r) {
+  | Ok () => RunAsync.return()
+  | Error(err) =>
+    print_endline("Error: " ++ Run.formatError(err));
+    RunAsync.return();
+  };
 };
 
 open Cmdliner;
@@ -190,14 +202,17 @@ let rewritePrefix = {
 };
 
 let lwt_main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
-  let res = Lwt_main.run(main(ocamlPkgName, ocamlVersion, rewritePrefix));
-  switch (res) {
-  | Ok(_) => print_endline("tout ok")
-  | Error(`NoBuildFound) => print_endline("No build found!")
-  | Error(`ReleaseAlreadyInstalled) =>
-    print_endline("Release already installed!")
-  | Error(`EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
-  };
+  /* let res = Lwt_main.run(main(ocamlPkgName, ocamlVersion, rewritePrefix)); */
+  /* switch (res) { */
+  /* | Ok(_) => print_endline("tout ok") */
+  /* | Error(`NoBuildFound) => print_endline("No build found!") */
+  /* | Error(`ReleaseAlreadyInstalled) => */
+  /*   print_endline("Release already installed!") */
+  /* | Error(`EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err)) */
+  /* }; */
+  Lwt_main.run(
+    main(ocamlPkgName, ocamlVersion, rewritePrefix),
+  );
 };
 
 let main_t =
