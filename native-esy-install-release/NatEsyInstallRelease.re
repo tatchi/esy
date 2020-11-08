@@ -37,16 +37,6 @@ let getStorePathForPrefix = (prefix, ocamlPkgName, ocamlVersion) => {
   );
 };
 
-// type checkError = [
-//   | `NoBuildFound
-//   | `ReleaseAlreadyInstalled
-//   | `EsyLibError(EsyLib.Run.error)
-// ];
-
-// type initStoreError = [ | `EsyLibError(EsyLib.Run.error)];
-
-// type checkResult = result(unit, checkError);
-
 type fileStat = {
   relative: Fpath.t,
   basename: Fpath.t,
@@ -136,12 +126,21 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   };
 
   let initStore = () => {
+    open RunAsync.Syntax;
     let storePath =
       if (rewritePrefix) {
         getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
       } else {
         unpaddedStorePath;
       };
+
+    // let%bind _ = Fs.createDir(storePath);
+
+    // RunAsync.List.waitAll([
+    //   Fs.createDir(Path.(storePath / storeBuildTree)),
+    //   Fs.createDir(Path.(storePath / storeInstallTree)),
+    //   Fs.createDir(Path.(storePath / storeStageTree)),
+    // ]);
     Fs.createDir(storePath)
     |> RunAsync.Syntax.Let_syntax.bind(~f=_ => {
          RunAsync.List.waitAll([
@@ -164,8 +163,13 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     };
     importBuilds();
   };
+  open RunAsync.Syntax;
+  let%lwt checkResult = check();
 
-  Lwt.return_nil;
+  switch (checkResult) {
+  | Error(err) => Lwt.return(Error(err))
+  | Ok () => initStore()
+  };
 };
 
 open Cmdliner;
@@ -198,16 +202,14 @@ let rewritePrefix = {
 };
 
 let lwt_main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
-  Lwt_main.run(
-    main(ocamlPkgName, ocamlVersion, rewritePrefix),
-    // switch (res) {
-    // | Ok(_) => print_endline("tout ok")
-    // | Error(`NoBuildFound) => print_endline("No build found!")
-    // | Error(`ReleaseAlreadyInstalled) =>
-    //   print_endline("Release already installed!")
-    // | Error(`EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
-    // };
-  );
+  let res = Lwt_main.run(main(ocamlPkgName, ocamlVersion, rewritePrefix));
+  switch (res) {
+  | Ok(_) => print_endline("tout ok")
+  | Error(`NoBuildFound) => print_endline("No build found!")
+  | Error(`ReleaseAlreadyInstalled) =>
+    print_endline("Release already installed!")
+  | Error(`EsyLibError(err)) => print_endline(EsyLib.Run.formatError(err))
+  };
 };
 
 let main_t =
