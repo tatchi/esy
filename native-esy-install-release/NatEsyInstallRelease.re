@@ -126,7 +126,7 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
   };
 
   let initStore = () => {
-    open RunAsync.Syntax;
+    open Lwt_result;
     let storePath =
       if (rewritePrefix) {
         getStorePathForPrefix(releasePackagePath, ocamlPkgName, ocamlVersion);
@@ -134,27 +134,16 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
         unpaddedStorePath;
       };
 
-    // let%bind _ = Fs.createDir(storePath);
-
-    // RunAsync.List.waitAll([
-    //   Fs.createDir(Path.(storePath / storeBuildTree)),
-    //   Fs.createDir(Path.(storePath / storeInstallTree)),
-    //   Fs.createDir(Path.(storePath / storeStageTree)),
-    // ]);
     Fs.createDir(storePath)
-    |> RunAsync.Syntax.Let_syntax.bind(~f=_ => {
-         RunAsync.List.waitAll([
-           Fs.createDir(Path.(storePath / storeBuildTree)),
-           Fs.createDir(Path.(storePath / storeInstallTree)),
-           Fs.createDir(Path.(storePath / storeStageTree)),
-         ])
-       })
-    |> Lwt.map(res =>
-         switch (res) {
-         | Error(err) => Error(`EsyLibError(err))
-         | Ok(_) => Ok()
-         }
-       );
+    >>= (
+      _ =>
+        RunAsync.List.waitAll([
+          Fs.createDir(Path.(storePath / storeBuildTree)),
+          Fs.createDir(Path.(storePath / storeInstallTree)),
+          Fs.createDir(Path.(storePath / storeStageTree)),
+        ])
+    )
+    |> Lwt_result.map_err(err => `EsyLibError(err));
   };
 
   let doImport = () => {
@@ -163,13 +152,12 @@ let main = (ocamlPkgName, ocamlVersion, rewritePrefix) => {
     };
     importBuilds();
   };
-  open RunAsync.Syntax;
-  let%lwt checkResult = check();
-
-  switch (checkResult) {
-  | Error(err) => Lwt.return(Error(err))
-  | Ok () => initStore()
-  };
+  // module Let_syntax = {
+  //   let bind = (~f, v) => Lwt_result.bind(v, f);
+  // };
+  // let%bind _ = check();
+  // initStore();
+  Lwt_result.(check() >>= (_ => initStore()));
 };
 
 open Cmdliner;
