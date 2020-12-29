@@ -14,7 +14,7 @@
         "esyBuildPackageCommand",
         "esyRewritePrefixCommand",
         "esySolveCudfCommand",
-        "esyNatEsyInstallRelease"
+        "esyNativeInstallNpmRelease"
       ]
     },
     "buildsInSource": "_build"
