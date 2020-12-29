@@ -13,7 +13,8 @@
         "esy",
         "esyBuildPackageCommand",
         "esyRewritePrefixCommand",
-        "esySolveCudfCommand"
+        "esySolveCudfCommand",
+        "esyNatEsyInstallRelease"
       ]
     },
     "buildsInSource": "_build"
