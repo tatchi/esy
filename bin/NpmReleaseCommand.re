@@ -3,7 +3,7 @@ open EsyInstall;
 open EsyBuild;
 
 let esyInstallReleaseJs =
-  switch (NodeResolution.resolve("./esyInstallRelease.js")) {
+  switch (NodeResolution.resolve("./esyNativeInstallNpmRelease")) {
   | Ok(path) => path
   | Error(`Msg(msg)) => failwith(msg)
   };
@@ -665,13 +665,13 @@ let make =
         switch (releaseCfg.rewritePrefix) {
         | NoRewrite =>
           Printf.sprintf(
-            "esyNativeInstallNpmRelease --ocaml-version='%s' --ocaml-pkg-name='%s' --rewrite-prefix=false",
+            "./esyInstallRelease.exe --ocaml-version='%s' --ocaml-pkg-name='%s' --rewrite-prefix=false",
             ocamlPkgName,
             ocamlVersion,
           )
         | Rewrite =>
           Printf.sprintf(
-            "esyNativeInstallNpmRelease --ocaml-version='%s' --ocaml-pkg-name='%s' --rewrite-prefix=true",
+            "./esyInstallRelease.exe --ocaml-version='%s' --ocaml-pkg-name='%s' --rewrite-prefix=true",
             ocamlPkgName,
             ocamlVersion,
           )
@@ -738,7 +738,7 @@ let make =
     let%bind () =
       Fs.copyFile(
         ~src=esyInstallReleaseJs,
-        ~dst=Path.(outputPath / "esyInstallRelease.js"),
+        ~dst=Path.(outputPath / "esyInstallRelease.exe"),
       );
     let%bind () = {
       let f = filename => {
