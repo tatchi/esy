@@ -164,6 +164,77 @@ let makeBinWrapper =
     | Some(x) => x
     | None => false
     };
+
+  let path_sep =
+    if (!Sys.unix) {
+      '\\';
+    } else {
+      '/';
+    };
+
+  let path_sep_str = String.make(1, path_sep);
+
+  let is_abs = p =>
+    if (!Sys.unix) {
+      switch (String.split_on_char(':', p)) {
+      | [drive, ..._] when String.length(drive) == 1 => true
+      | _ => false
+      };
+    } else {
+      String.length(p) > 0 && p.[0] == '/';
+    };
+
+  let normalize = p => {
+    let p = Str.global_substitute(Str.regexp("\\"), _ => "/", p);
+    let parts = String.split_on_char('/', p);
+    let need_leading_sep = Sys.unix && is_abs(p);
+    let f = (parts, part) =>
+      switch (part, parts) {
+      | ("", parts) => parts
+      | (".", parts) => parts
+      | ("..", []) => parts
+      | ("..", [part]) =>
+        if (!Sys.unix) {
+          [part];
+        } else {
+          [];
+        }
+      | ("..", [_, ...parts]) => parts
+      | (part, parts) => [part, ...parts]
+      };
+
+    let p =
+      String.concat(
+        path_sep_str,
+        List.rev(List.fold_left(~f, ~init=[], parts)),
+      );
+    if (need_leading_sep) {
+      "/" ++ p;
+    } else {
+      p;
+    };
+  };
+
+  let expandFallback = storePrefix => {
+    let dummyPrefix = String.make(String.length(storePrefix), '_');
+    let dirname = Filename.dirname(bin);
+    let pattern = Str.regexp(dummyPrefix);
+    let storePrefix = {
+      let (/) = Filename.concat;
+      normalize(dirname / ".." / "3");
+    };
+
+    let rewrite = value =>
+      Str.global_substitute(pattern, _ => storePrefix, value);
+
+    rewrite;
+  };
+
+  let storePrefix =
+    Path.show(destPrefix)
+    |> String.split_on_char('\\')
+    |> String.concat("\\\\");
+
   /* TODO: When noEnv is true, environment bindings need not be embedded */
   let environmentString =
     environment
@@ -171,6 +242,7 @@ let makeBinWrapper =
     |> List.filter(~f=((name, _)) =>
          switch (name) {
          | "SHELL"
+         | "_"
          | "cur__original_root"
          | "cur__root" => false
          | _ => true
@@ -184,10 +256,7 @@ let makeBinWrapper =
          ++ "|}"
        )
     |> List.append([
-         switch (Sys.getenv_opt("SHELL")) {
-         | Some(v) => "{|SHELL|}, {|" ++ v ++ "|}"
-         | None => "{|SHELL|}, {|/bin/sh|}"
-         },
+         "{|_|}, {|" ++ expandFallback(storePrefix, bin) ++ "|}",
        ])
     |> String.concat(";");
 
@@ -340,6 +409,11 @@ let makeBinWrapper =
       let storePrefix = "%s" in
       let no_wrapper = %s in
       let expandedEnv = expandFallbackEnv storePrefix (expandEnv env) in
+      let shellEnv = match (Sys.getenv_opt "SHELL") with
+      | Some v -> [| "SHELL=" ^ v |]
+      | None -> [|"SHELL=/bin/sh"|]
+      in
+      let expandedEnv = Array.append expandedEnv shellEnv in
       if Array.length Sys.argv = 2 && Sys.argv.(1) = "----where" then
         print_endline (expandFallback storePrefix program)
       else if Array.length Sys.argv = 2 && Sys.argv.(1) = "----env" then
@@ -366,9 +440,7 @@ let makeBinWrapper =
   |},
     environmentString,
     bin,
-    Path.show(destPrefix)
-    |> String.split_on_char('\\')
-    |> String.concat("\\\\"),
+    storePrefix,
     string_of_bool(noEnv),
   );
 };
