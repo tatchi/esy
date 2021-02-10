@@ -46,8 +46,8 @@ steps:
     displayName: 'esy test:e2e-slow'
     continueOnError: true
   - ${{ if eq(parameters.platform,  'Ubuntu_16_04') }}:
-    - script: "esy release"
+    - script: "esy x esy release"
       displayName: "esy release"
   - ${{ if ne(parameters.platform,  'Ubuntu_16_04') }}:
-    - script: "esy release --no-env"
+    - script: "esy x esy release --no-env"
       displayName: "esy release --no-env"
