@@ -28,26 +28,26 @@ steps:
   - script: "esy build"
     displayName: "esy build"
   - template: utils/publish-build-cache.yml
-  - script: 'esy dune build @fmt'
-    displayName: 'Check code formatting'
-    condition: ne(variables['AGENT.OS'], 'Windows_NT')
-  - script: 'esy b dune runtest test'
-    displayName: 'esy b dune runtest test'
-  - script: 'node ./node_modules/jest-cli/bin/jest.js'
-    displayName: 'esy test:e2e'
-  - script: 'npm install'
-    workingDirectory: './test-e2e-re/lib/verdaccio/'
-    continueOnError: true
-    displayName: 'esy test:e2e-re: npm install'
-  # - script: 'esy test:e2e-re'
+  # - script: 'esy dune build @fmt'
+  #   displayName: 'Check code formatting'
+  #   condition: ne(variables['AGENT.OS'], 'Windows_NT')
+  # - script: 'esy b dune runtest test'
+  #   displayName: 'esy b dune runtest test'
+  # - script: 'node ./node_modules/jest-cli/bin/jest.js'
+  #   displayName: 'esy test:e2e'
+  # - script: 'npm install'
+  #   workingDirectory: './test-e2e-re/lib/verdaccio/'
+  #   continueOnError: true
+  #   displayName: 'esy test:e2e-re: npm install'
+  # # - script: 'esy test:e2e-re'
   #   continueOnError: true
   #   displayName: 'esy test:e2e-re'
   - script: 'node ./test-e2e-slow/run-slow-tests.js'
     displayName: 'esy test:e2e-slow'
     continueOnError: true
   - ${{ if eq(parameters.platform,  'Ubuntu_16_04') }}:
-    - script: "esy x esy release"
+    - script: "esy b esy release"
       displayName: "esy release"
   - ${{ if ne(parameters.platform,  'Ubuntu_16_04') }}:
-    - script: "esy x esy release --no-env"
+    - script: "esy b esy release --no-env"
       displayName: "esy release --no-env"
