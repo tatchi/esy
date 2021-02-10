@@ -810,11 +810,11 @@ let make =
       Fs.writeFile(~data, Path.(outputPath / "package.json"));
     };
 
-    let%bind () =
-      Fs.copyFile(
-        ~src=esyNativeInstallNpmReleasePath,
-        ~dst=Path.(outputPath / "esyInstallRelease"),
-      );
+    // let%bind () =
+    //   Fs.copyFile(
+    //     ~src=esyNativeInstallNpmReleasePath,
+    //     ~dst=Path.(outputPath / "esyInstallRelease"),
+    //   );
     let%bind () = {
       let f = filename => {
         let src = Path.(spec.path / filename);
